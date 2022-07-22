@@ -24,7 +24,7 @@ class FreeRoutingPlugin(pcbnew.ActionPlugin):
 
     # init in place of constructor
     def defaults(self):
-        self.here_path = os.path.dirname(__file__)
+        self.here_path, self.filename = os.path.split(os.path.abspath(__file__))
         self.name = "FreeRouting"
         self.category = "PCB auto routing"
         self.description = "FreeRouting for PCB auto routing"
@@ -32,13 +32,14 @@ class FreeRoutingPlugin(pcbnew.ActionPlugin):
         self.icon_file_name = os.path.join(self.here_path, 'icon.png')
         
         # Controls KiCAD session file imports (works only in KiCAD nigthly or 6)
-        self.SPECCTRA=False
+        self.SPECCTRA=True
 
     # setup execution context
     def prepare(self):
 
         self.board = pcbnew.GetBoard()
-        self.path_tuple = os.path.splitext(self.board.GetFileName())
+        self.dirpath, self.board_name = os.path.split(self.board.GetFileName())
+        self.path_tuple = os.path.splitext(os.path.abspath(self.board.GetFileName()))
         self.board_prefix = self.path_tuple[0]
 
         config = configparser.ConfigParser()
@@ -51,43 +52,49 @@ class FreeRoutingPlugin(pcbnew.ActionPlugin):
         self.module_path = os.path.join(self.here_path, self.module_file)
         
         # Set temp filename
-        #filename = 'freerouting'
-        filename = os.path.dirname(self.board_prefix) + '/freerouting'
-        self.module_input = filename + '.' + config['module']['input_ext']
-        self.module_output = filename + '.' + config['module']['output_ext']
-        self.module_rules = filename + '.' + config['module']['rules_ext']
-        self.module_org_output = self.board_prefix + '.' + config['module']['output_ext']
-        self.module_org_rules = self.board_prefix + '.' + config['module']['rules_ext']
+        self.module_input = os.path.join(self.dirpath,'freerouting.dsn')
+        self.temp_input =  os.path.join(self.dirpath,'temp-freerouting.dsn')
+        self.module_output =  os.path.join(self.dirpath,'freerouting.ses')
+        self.module_rules =  os.path.join(self.dirpath,'freerouting.rules')
        
         # Remove previous temp files
         try:
-            os.remove(self.module_input)
-            os.remove(self.module_output)
-            os.remove(self.module_rules)
+            os.remove(self.temp_input)
         except:
             pass
         
+        try:
+            os.remove(self.module_output)
+        except:
+            pass
+        
+        try:
+            os.remove(self.module_rules)
+        except:
+            pass
         # Create DSN file and remove java offending characters
+        if not self.RunExport() :
+            raise Exception("Failed to generate DSN file!")
         self.bFirstLine = True
         self.bEatNextLine = False
-        with open(filename + '.' + config['module']['input_ext'], "w") as fw, \
-             open(self.board_prefix + '.' + config['module']['input_ext'],"r") as fr:
-                for l in fr:
-                    if self.bFirstLine:
-                        fw.writelines('(pcb ' + self.module_input + '\n')
-                        self.bFirstLine = False
-                    elif self.bEatNextLine:
-                        self.bEatNextLine = l.rstrip()[-2:]!="))" 
-                        print(l)
-                        print(self.bEatNextLine)
-                        
-                    # Optional: remove one or both copper-pours before run freerouting 
-                    #elif l[:28] == "    (plane GND (polygon F.Cu":
-                    #    self.bEatNextLine = True
-                    #elif l[:28] == "    (plane GND (polygon B.Cu":
-                    #    self.bEatNextLine = True
-                    else:                                               
-                        fw.writelines(search_n_strip(l))
+        fw = open(self.module_input, "w")
+        fr = open(self.temp_input , "r")
+        for l in fr:
+            if self.bFirstLine:
+                fw.writelines('(pcb ' + self.module_input + '\n')
+                self.bFirstLine = False
+            elif self.bEatNextLine:
+                self.bEatNextLine = l.rstrip()[-2:]!="))" 
+                print(l)
+                print(self.bEatNextLine)
+                
+            # Optional: remove one or both copper-pours before run freerouting 
+            #elif l[:28] == "    (plane GND (polygon F.Cu":
+            #    self.bEatNextLine = True
+            #elif l[:28] == "    (plane GND (polygon B.Cu":
+            #    self.bEatNextLine = True
+            else:                                               
+                fw.writelines(search_n_strip(l))
         fr.close()
         fw.close()
         
@@ -96,20 +103,13 @@ class FreeRoutingPlugin(pcbnew.ActionPlugin):
         
         # Run freerouting with -do
         self.module_command = [self.java_path, "-jar", self.module_path, "-de", self.module_input, "-do", self.module_output]
-        
-        if self.SPECCTRA:
-
-            if os.path.isfile(self.module_input):
-                os.remove(self.module_input)
-
-            if os.path.isfile(self.module_output):
-                os.remove(self.module_output)                              
+                       
 
     # export board.dsn file from pcbnew
     def RunExport(self):
         if self.SPECCTRA:
-            ok = pcbnew.ExportSpecctraDSN(self.module_input)
-            if ok and os.path.isfile(self.module_input):
+            ok = pcbnew.ExportSpecctraDSN(self.temp_input)
+            if ok and os.path.isfile(self.temp_input):
                 return True
             else:
                 wx_show_error("""
@@ -159,6 +159,8 @@ class FreeRoutingPlugin(pcbnew.ActionPlugin):
         if self.SPECCTRA:
             ok = pcbnew.ImportSpecctraSES(self.module_output)
             if ok and os.path.isfile(self.module_output):
+                os.remove(self.module_input)
+                os.remove(self.module_output)               
                 return True
             else:
                 wx_show_error("""
@@ -171,26 +173,18 @@ class FreeRoutingPlugin(pcbnew.ActionPlugin):
 
     # invoke chain of dependent methods
     def RunSteps(self):
+
         self.prepare()
-        
-        if not self.RunExport() :
-            return
+
         if not self.RunRouter() :
             return
 
         # Remove temp DSN file
-        os.remove(self.module_input)
+        os.remove(self.temp_input)
 
-        # Rename SES and RULES files
-        try:
-            os.rename(self.module_output,
-                      self.module_org_output)
-            os.rename(self.module_rules,
-                      self.module_org_rules)
-        except:
-            pass
 
         wx_safe_invoke(self.RunImport)
+        
 
     # kicad plugin action entry
     def Run(self):

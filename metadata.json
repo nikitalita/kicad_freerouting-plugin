@@ -1,0 +1,31 @@
+{
+    "$schema": "https://go.kicad.org/pcm/schemas/v1",
+    "name": "Freerouting integration",
+    "description": "Freerouting integration",
+    "description_full": "Freerouting integration\n",
+    "identifier": "com.github.andrasfuchs.kicad-freerouting-plugin",
+    "type": "plugin",
+    "author": {
+        "name": "Andras Fuchs",
+        "contact": {
+            "email": "andras@fuchs.net"
+        }
+    },
+    "maintainer": {
+        "name": "Andras Fuchs",
+        "contact": {
+            "email": "andras@fuchs.net"
+        }
+    },
+    "license": "CC-BY-SA-4.0",
+    "resources": {
+        "Github": "https://github.com/andrasfuchs/kicad_freerouting-plugin"
+    },
+    "versions": [
+        {
+            "version": "4.0",
+            "status": "stable",
+            "kicad_version": "6.0"
+        }
+    ]
+}
